@@ -4,7 +4,7 @@ import joblib
 
 app = FastAPI(title="Dyslexia Assistant API")
 
-data = joblib.load("bert_difficulty_model.pkl")
+data = joblib.load("models/bert_difficulty_model.pkl")
 model = data["model"]
 feature_columns = data["feature_count"]
 
@@ -16,7 +16,7 @@ def root():
 class TextInput(BaseModel):
     text: str
 
-from bert_scorer import score_word_bert, find_difficult_words_in_text
+from models.bert_scorer import score_word_bert, find_difficult_words_in_text
 @app.post("/analyze")
 def analyze(input: TextInput):
     import string
@@ -37,7 +37,7 @@ def analyze(input: TextInput):
     }
 
 from groq import Groq
-from simplifier_groq import simplify_text
+from sevices.simplifier_groq import simplify_text
 
 groq_client = Groq(api_key=("GROQ_API_KEY"))
 

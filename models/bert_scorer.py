@@ -6,13 +6,13 @@ import joblib
 from sentence_transformers import SentenceTransformer
 
 # Load model and embedder once at startup
-data     = joblib.load('bert_difficulty_model.pkl')
+data     = joblib.load('models/bert_difficulty_model.pkl')
 model    = data['model']
 embedder = SentenceTransformer('paraphrase-MiniLM-L3-v2')
 dic      = pyphen.Pyphen(lang='en')
 
-subtlex_df = pd.read_csv('SUBTLEX-US frequency list with PoS and Zipf information.csv')
-aoa_df = pd.read_excel('AoA_51715_words.xlsx')
+subtlex_df = pd.read_csv('data/SUBTLEX-US frequency list with PoS and Zipf information.csv')
+aoa_df = pd.read_excel('data/AoA_51715_words.xlsx')
 nphon_lookup  = aoa_df.set_index('Word')['Nphon'].to_dict()
 freq_lookup   = aoa_df.set_index('Word')['Freq_pm'].to_dict()
 pos_lookup = subtlex_df.set_index('Word')['Dom_PoS_SUBTLEX'].to_dict()
