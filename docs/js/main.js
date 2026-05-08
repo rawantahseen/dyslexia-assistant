@@ -308,48 +308,9 @@ function showResult(data, actionType) {
           '<span class="text-muted">No difficult words found!</span>'}
           </div>
         </div>
+        
       `;
       break;
-
-    case "simplify":
-  summary = data.original_analysis?.summary || { reading_level: "N/A" };
-  highlightedText = data.original || "Original text not available";
-  resultHTML = `
-    <div class="mb-3">
-      <div class="row mb-4 text-center align-items-center">
-        <div class="col-md-5">
-          <div class="p-3 rounded border shadow-sm result-card">
-            <h6 class="small">Before</h6>
-            <div class="h4 mb-0">${summary.reading_level}</div>
-          </div>
-        </div>
-
-        <div class="col-md-2 d-none d-md-block">
-          <div class="process-arrow">
-            <i class="fa-solid fa-circle-arrow-right fa-2x text-success"></i>
-          </div>
-        </div>
-
-        <div class="col-md-5">
-          <div class="p-3 rounded border border-success shadow-sm result-card after-card">
-            <h6 class="text-success small">After</h6>
-            <div class="h4 text-success mb-0">${data.simplified_analysis?.summary?.reading_level || 'N/A'}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="mb-4 p-4 rounded" style="background: var(--input-bg-color); border-left: 5px solid var(--accent-color)">
-        <h6 class="mb-2 text-uppercase" style="font-size: 0.8rem;">Original Text:</h6>
-        <p class="mb-0" style="line-height: 2; font-size: 1rem;">${highlightedText}</p>
-      </div>
-
-      <h5 class="border-bottom pb-2">Simplified Text</h5>
-      <p class="mt-3 p-3 rounded" style="background: var(--input-bg-color); line-height: 1.8; font-size: 1.1rem;">
-        ${data.simplified || 'No simplified text returned.'}
-      </p>
-    </div>
-  `;
-  break;
 
     case "process":
       summary = data.original_analysis.summary;
@@ -395,7 +356,10 @@ function showResult(data, actionType) {
           <h6 class="mb-2 text-uppercase" style="font-size: 0.8rem;">Original Text:</h6>
           <p class="mb-0" style="line-height: 2; font-size: 1rem;">${highlightedText}</p>
         </div>
-
+        <div class="mb-5 p-4 rounded shadow-inner" style="background: var(--input-bg-color); border-left: 5px solid var(--accent-color)">
+          <h6 class="mb-2 text-uppercase" style="font-size: 0.8rem;">Simplified Text:</h6>
+          <p class="mb-0" style="line-height: 2; font-size: 1rem;">${data.simplified}</p>
+        </div>
       `;
       break;
   }
@@ -417,7 +381,6 @@ document.getElementById('contactSubmit').addEventListener('click', () => {
     return;
   }
 
-  // ✅ هنا تقدر تضيف الـ API call بتاعتك
   document.getElementById('contactSuccess').style.display = 'block';
 
   // Clear form
