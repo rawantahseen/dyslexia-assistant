@@ -6,9 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import numpy as np 
-from ai.models.difficulty_scorer import score_word_bert, find_difficult_words_in_text
+from ai.models.difficulty_scorer import find_difficult_words_in_text
 from groq import Groq
-from ai.services.simplifier_groq import simplify_text, simplify_sentence_level, simplify_targeted
+from ai.services.simplifier_groq import simplify_targeted
 
 app = FastAPI(title="Dyslexia Assistant API")
 app.add_middleware(
@@ -19,14 +19,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))  # ← stop hardcoding keys
-
 @app.get("/")
 def root():
     return {"message": "Dyslexia Assistant API is running"}
 
 class TextInput(BaseModel):
     text: str
+
+class ProcessInput(BaseModel):
+    text: str
+    user_view: bool = False
 
 @app.post("/analyze")
 def analyze(input: TextInput):
@@ -60,7 +62,7 @@ def analyze(input: TextInput):
         "summary": {
             "total_content_words": total_words,
             "hard_word_count":     hard_count,
-            "hard_word_density":   f"{hard_density}%",
+            "hard_word_density":   hard_density,
             "weighted_difficulty": weighted_difficulty,
             "p90_score":           p90_score,
             "hardest_word":        max_word['word'] if max_word else None,
@@ -69,17 +71,10 @@ def analyze(input: TextInput):
         },
         "hard_words": hard_words
     }
-    
 
 @app.post("/simplify")
-def simplify(input: TextInput, mode: str = "targeted"):
-    if mode == "targeted":
-        result = simplify_targeted(input.text)
-    elif mode == "sentence":
-        result = simplify_sentence_level(input.text)
-    else:
-        result = simplify_text(input.text)
-    return result
+def simplify(input: TextInput):
+    return simplify_targeted(input.text)
 
 @app.post("/process")
 def process(input: TextInput, user_view: bool = False):
@@ -122,9 +117,9 @@ def process(input: TextInput, user_view: bool = False):
     ]
 
     # step 6 — verdict
-    original_density   = float(original_analysis['summary']['hard_word_density'].replace('%', ''))
-    simplified_density = float(simplified_analysis['summary']['hard_word_density'].replace('%', ''))
-    density_reduction  = round(original_density - simplified_density, 1)
+    original_density  = original_analysis['summary']['hard_word_density']
+    simplified_density = simplified_analysis['summary']['hard_word_density']
+    density_reduction = round(original_density - simplified_density, 1)
 
     original_diff  = simplified['reranking']['original_difficulty']
     final_diff     = simplified['reranking']['final_difficulty']
@@ -186,8 +181,6 @@ def process(input: TextInput, user_view: bool = False):
             "hard_words_introduced": len(introduced),
             "density_reduction":     f"{density_reduction}%",
             "difficulty_reduction":  diff_reduction,
-            "flesch_improvement":    round(simplified['improvement'], 1),
-            "winning_strategy": "targeted",
         },
 
         "diff": {
@@ -195,8 +188,4 @@ def process(input: TextInput, user_view: bool = False):
             "survived":   survived,
             "introduced": introduced,
         },
-
-        "original_analysis":   original_analysis,
-        "simplified_analysis": simplified_analysis,
-        "simplification_meta": simplified['reranking']
     }
