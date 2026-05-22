@@ -173,6 +173,10 @@ def process(input: TextInput, user_view: bool = False):
     return {
         "original":   input.text,
         "simplified": simplified_text,
+        
+        "original_analysis": original_analysis,
+        "simplified_analysis": simplified_analysis,
+
 
         "verdict": {
             "label":                 verdict,
@@ -188,4 +192,5 @@ def process(input: TextInput, user_view: bool = False):
             "survived":   survived,
             "introduced": introduced,
         },
+
     }
