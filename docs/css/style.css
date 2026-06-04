@@ -1045,7 +1045,7 @@ textarea::placeholder {
 
 .result-card:hover {
   transform: translateY(-5px);
-  shadow: 0 10px 20px rgba(0, 0, 0, 0.12) !important;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.12) !important;
   border-color: var(--accent-color) !important;
 }
 
