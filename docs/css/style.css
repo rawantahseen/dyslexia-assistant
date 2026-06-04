@@ -994,6 +994,12 @@ position: relative;
   border-radius: 4px;
   font-weight: 500;
 }
+.hard-word-survived {
+  background-color: #ffe066;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: help;
+}
 
 /* ── Sparkles ── */
 .sparkle {
