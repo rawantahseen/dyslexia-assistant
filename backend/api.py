@@ -5,9 +5,8 @@ sys.path.append(BASE_DIR)
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import numpy as np 
+import numpy as np
 from ai.models.difficulty_scorer import find_difficult_words_in_text
-from groq import Groq
 from ai.services.simplifier_groq import simplify_targeted
 
 app = FastAPI(title="Dyslexia Assistant API")
@@ -26,27 +25,22 @@ def root():
 class TextInput(BaseModel):
     text: str
 
-class ProcessInput(BaseModel):
-    text: str
-    user_view: bool = False
 
-@app.post("/analyze")
-def analyze(input: TextInput):
+def _analyze_text(text: str) -> dict:
+    results    = find_difficult_words_in_text(text, threshold=4.5)
+    all_scored = results["all_scored"]
+    hard_words = results["difficult_words"]
 
-    results     = find_difficult_words_in_text(input.text, threshold=5.0)
-    all_scored = results['all_scored']  
-    hard_words  = results['difficult_words']  
-
-    all_scores   = [w['difficulty_score'] for w in all_scored]
+    all_scores   = [w["difficulty_score"] for w in all_scored]
     total_words  = len(all_scores)
     hard_count   = len(hard_words)
-    hard_density = round(hard_count / total_words * 100, 1)
-    p90_score    = round(float(np.percentile(all_scores, 90)), 2)
+    hard_density = round(hard_count / total_words * 100, 1) if total_words > 0 else 0.0
+    p90_score    = round(float(np.percentile(all_scores, 90)), 2) if all_scores else 0.0
     max_word     = hard_words[0] if hard_words else None
 
-    total_frequency     = sum(w['frequency_in_text'] for w in hard_words)
+    total_frequency     = sum(w["frequency_in_text"] for w in hard_words)
     weighted_difficulty = round(
-        sum(w['difficulty_score'] * w['frequency_in_text'] for w in hard_words) / total_frequency, 2
+        sum(w["difficulty_score"] * w["frequency_in_text"] for w in hard_words) / total_frequency, 2
     ) if total_frequency > 0 else 0.0
 
     if hard_density < 5:
@@ -65,132 +59,142 @@ def analyze(input: TextInput):
             "hard_word_density":   hard_density,
             "weighted_difficulty": weighted_difficulty,
             "p90_score":           p90_score,
-            "hardest_word":        max_word['word'] if max_word else None,
-            "hardest_word_score":  max_word['difficulty_score'] if max_word else None,
-            "reading_level":       reading_level
+            "hardest_word":        max_word["word"] if max_word else None,
+            "hardest_word_score":  max_word["difficulty_score"] if max_word else None,
+            "reading_level":       reading_level,
         },
-        "hard_words": hard_words
+        "hard_words": hard_words,
     }
+
+
+@app.post("/analyze")
+def analyze(input: TextInput):
+    """Standalone analysis — used independently, not after /process."""
+    analysis  = _analyze_text(input.text)
+    return analysis
+
 
 @app.post("/simplify")
 def simplify(input: TextInput):
     return simplify_targeted(input.text)
 
+
 @app.post("/process")
-def process(input: TextInput, user_view: bool = False):
-    # step 1 — analyze original
-    original_analysis = analyze(input)
+def process(input: TextInput):
+    # Step 1 — analyze original
+    original_analysis = _analyze_text(input.text)
 
-    # step 3 — simplify with hard words injected into prompt
+    # Step 2 — simplify
     simplified = simplify_targeted(input.text)
-    if not simplified.get('success'):
-        return {"error": simplified.get('error'), "success": False}
+    if not simplified.get("success"):
+        return {"error": simplified.get("error"), "success": False}
 
-    simplified_text = simplified['simplified']
+    simplified_text = simplified["simplified"]
 
-    # step 4 — analyze simplified
-    simplified_analysis = analyze(TextInput(text=simplified_text))
+    # Step 3 — analyze simplified
+    simplified_analysis = _analyze_text(simplified_text)
 
-    # step 5 — compute the diff
-    original_hard   = {w['word']: w for w in original_analysis['hard_words']}
-    simplified_hard = {w['word']: w for w in simplified_analysis['hard_words']}
+    # Step 4 — diff
+    original_hard   = {w["word"]: w for w in original_analysis["hard_words"]}
+    simplified_hard = {w["word"]: w for w in simplified_analysis["hard_words"]}
 
-    eliminated = [
-        word for word in original_hard
-        if word not in simplified_hard
-    ]
+    eliminated = [w for w in original_hard if w not in simplified_hard]
 
     survived = [
         {
-            'word':             word,
-            'original_score':   original_hard[word]['difficulty_score'],
-            'simplified_score': simplified_hard[word]['difficulty_score'],
-            'improved':         simplified_hard[word]['difficulty_score'] < original_hard[word]['difficulty_score']
+            "word":       word,
+            "difficulty": simplified_hard[word]["difficulty_level"],
+            "why":        simplified_hard[word]["reasons"][0] if simplified_hard[word]["reasons"] else "Rarely encountered word",
         }
-        for word in original_hard
-        if word in simplified_hard
+        for word in original_hard if word in simplified_hard
     ]
 
     introduced = [
-        word for word in simplified_hard
-        if word not in original_hard
+        {"word": word, "difficulty": simplified_hard[word]["difficulty_level"]}
+        for word in simplified_hard if word not in original_hard
     ]
 
-    # step 6 — verdict
-    original_density  = original_analysis['summary']['hard_word_density']
-    simplified_density = simplified_analysis['summary']['hard_word_density']
+    # Step 5 — improvement summary (held by frontend, shown on Analyze click)
+    before_level = original_analysis["summary"]["reading_level"]
+    after_level  = simplified_analysis["summary"]["reading_level"]
+
+    original_density  = original_analysis["summary"]["hard_word_density"]
+    simplified_density = simplified_analysis["summary"]["hard_word_density"]
     density_reduction = round(original_density - simplified_density, 1)
 
-    original_diff  = simplified['reranking']['original_difficulty']
-    final_diff     = simplified['reranking']['final_difficulty']
+    original_diff  = simplified["reranking"]["original_difficulty"]
+    final_diff     = simplified["reranking"]["final_difficulty"]
     diff_reduction = round(original_diff - final_diff, 3)
 
-    if diff_reduction >= 1.5 and density_reduction >= 20:
-        verdict = "Highly effective — significant vocabulary and density improvement"
-    elif diff_reduction >= 0.8 or density_reduction >= 15:
-        verdict = "Effective — meaningful improvement in readability"
-    elif diff_reduction >= 0.3 or density_reduction >= 5:
-        verdict = "Moderate — some improvement but hard words remain"
-    elif len(introduced) > len(eliminated):
-        verdict = "Ineffective — simplification introduced new hard words"
+    parts = []
+    if eliminated:
+        parts.append(f"replaced {len(eliminated)} difficult word(s)")
+    if density_reduction > 0:
+        parts.append(f"reduced hard word density by {density_reduction}%")
+    if before_level != after_level:
+        parts.append(f"reading level improved from {before_level} to {after_level}")
     else:
-        verdict = "Minimal — text was already near its simplest form"
+        parts.append(f"reading level stayed at {after_level}")
 
-    # step 7 — user view
-    if user_view:
-        before_level = original_analysis['summary']['reading_level']
-        after_level  = simplified_analysis['summary']['reading_level']
+    summary_message = "We " + ", and ".join(parts) + "."
 
-        summary = (
-            f"We replaced {len(eliminated)} difficult words. "
-            f"This text went from {before_level} to {after_level} reading level."
+    if survived:
+        summary_message += (
+            f" {len(survived)} word(s) could not be fully simplified: "
+            f"{', '.join(w['word'] for w in survived)}."
         )
+    if introduced:
+        summary_message += f" {len(introduced)} new word(s) were introduced."
 
-        if len(survived) > 0:
-            survived_names = ', '.join([w['word'] for w in survived])
-            summary += f" Some hard words could not be replaced: {survived_names}."
-
-        if len(introduced) > 0:
-            summary += f" Watch out for {len(introduced)} new word(s) that may be tricky."
-
-        words_to_watch = []
-        for w in simplified_analysis['hard_words'][:5]:
-            words_to_watch.append({
-                'word': w['word'],
-                'why':  w['reasons'][0] if w['reasons'] else 'Rarely encountered word',
-                'difficulty': w['difficulty_level']
-            })
-
-        return {
-            "original":            input.text,
-            "simplified":          simplified_text,
-            "reading_level":       {"before": before_level, "after": after_level},
-            "improvement_summary": summary,
-            "words_to_watch":      words_to_watch
-        }
-
-    # step 8 — full technical response for developers
     return {
+        # Texts
         "original":   input.text,
         "simplified": simplified_text,
-        
-        "original_analysis": original_analysis,
+
+        # Word lists for highlighting
+        "original_hard_words": [
+            {
+                "word":             w["word"],
+                "syllables":        w.get("syllables_display", w["word"]),
+                "definition":       w.get("definition", ""),
+                "difficulty_level": w["difficulty_level"],
+                "reasons":          w["reasons"],
+            }
+            for w in original_analysis["hard_words"]
+        ],
+        "survived_words":      [w["word"] for w in survived],
+
+        # Shown immediately after process
+        "original_analysis":   original_analysis,
         "simplified_analysis": simplified_analysis,
 
-
-        "verdict": {
-            "label":                 verdict,
-            "hard_words_eliminated": len(eliminated),
-            "hard_words_survived":   len(survived),
-            "hard_words_introduced": len(introduced),
-            "density_reduction":     f"{density_reduction}%",
-            "difficulty_reduction":  diff_reduction,
+        # Held by frontend, rendered only when user clicks Analyze
+        "improvement_summary": {
+            "message":          summary_message,
+            "before_level":     before_level,
+            "after_level":      after_level,
+            "words_eliminated": len(eliminated),
+            "words_survived":   len(survived),
+            "words_introduced": len(introduced),
+            "density_reduction": density_reduction,
+            "diff_reduction":   diff_reduction,
+            "survived":         survived,    # for "words to watch" panel
+            "introduced":       introduced,
         },
-
-        "diff": {
-            "eliminated": eliminated,
-            "survived":   survived,
-            "introduced": introduced,
-        },
-
     }
+    
+@app.post("/define")
+def define_word(input: TextInput):
+    from nltk.corpus import wordnet
+    word = input.text.lower().strip()
+    
+    synsets = wordnet.synsets(word)
+    if synsets:
+        # Pick shortest definition — least cognitive load
+        definition = min(
+            (s.definition() for s in synsets),
+            key=lambda d: len(d.split())
+        )
+        return {"success": True, "word": input.text, "definition": definition}
+    
+    return {"success": False, "word": input.text, "definition": ""}
