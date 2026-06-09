@@ -78,6 +78,7 @@ def analyze(input: TextInput):
 def simplify(input: TextInput):
     return simplify_targeted(input.text)
 
+DIFFICULTY_THRESHOLD = 4.5
 
 @app.post("/process")
 def process(input: TextInput):
@@ -85,7 +86,7 @@ def process(input: TextInput):
     original_analysis = _analyze_text(input.text)
 
     # Step 2 — simplify
-    simplified = simplify_targeted(input.text)
+    simplified = simplify_targeted(input.text, difficulty_threshold=DIFFICULTY_THRESHOLD)
     if not simplified.get("success"):
         return {"error": simplified.get("error"), "success": False}
 
@@ -133,10 +134,15 @@ def process(input: TextInput):
         parts.append(f"reduced hard word density by {density_reduction}%")
     if before_level != after_level:
         parts.append(f"reading level improved from {before_level} to {after_level}")
-    else:
-        parts.append(f"reading level stayed at {after_level}")
 
-    summary_message = "We " + ", and ".join(parts) + "."
+    if not parts:
+        summary_message = f"No simplification needed. Reading level is already {after_level}."
+    else:
+        summary_message = "We " + ", and ".join(parts) + "."
+    #else:
+        #parts.append(f"reading level stayed at {after_level}")
+
+    #summary_message = "We " + ", and ".join(parts) + "."
 
     if survived:
         summary_message += (

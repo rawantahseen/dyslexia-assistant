@@ -825,11 +825,93 @@ async def simplify_targeted_async(
 
     # ── Single-sentence fast path ──────────────────────────────────────────────
     if len(sentences) <= 1:
+        # ── Early exit if no hard words ────────────────────────────────────────
+        hw_result = find_difficult_words_in_text(text, threshold=difficulty_threshold)
+        hw        = [w['word'] for w in hw_result['difficult_words']]
+    
+        if not hw:
+            original_flesch = textstat.flesch_reading_ease(text)
+            d               = score_difficulty(text)
+            return {
+                "original":          text,
+                "simplified":        text,
+                "original_flesch":   original_flesch,
+                "simplified_flesch": original_flesch,
+                "improvement":       0.0,
+                "success":           True,
+                "reranking": {
+                    "mode":                   "no_hard_words_early_exit",
+                    "total_sentences":        1,
+                    "sentences_simplified":   0,
+                    "sentences_kept":         1,
+                    "sentences_grouped":      0,
+                    "hard_sentences_found":   0,
+                    "clusters_found":         0,
+                    "representatives_sent":   0,
+                    "api_calls_made":         0,
+                    "original_difficulty":    round(score_difficulty(text), 3),
+                    "final_difficulty":       round(score_difficulty(text), 3),
+                    "difficulty_reduction":   0.0,
+                    "scoring_method":         "early_exit",
+                    "max_concurrent":         max_concurrent_sentences,
+                },
+                "sentence_details": [{
+                    "original":          text,
+                    "simplified":        text,
+                    "action":            "kept_unchanged",
+                    "reason":            "no hard words",
+                    "n_candidates_used": 0,
+                }],
+            }
+
+    # ── Hard words exist — proceed with simplification ─────────────────────
         d          = score_difficulty(text)
         hw         = [w['word'] for w in find_difficult_words_in_text(text, threshold=difficulty_threshold)['difficult_words']]
         adaptive_n = min(_adaptive_n_candidates(text, d), n_candidates)
         return await simplify_text(text, sim_threshold=sim_threshold,
                                    n_candidates=adaptive_n, hard_words=hw)
+    
+    # Before scoring every sentence, do a cheap word-level check on the full text.
+    # If find_difficult_words_in_text finds nothing above threshold, the whole
+    # document is already easy — skip everything and return original unchanged.
+    quick_check = find_difficult_words_in_text(text, threshold=difficulty_threshold)
+    if not quick_check['difficult_words']:
+        original_flesch = textstat.flesch_reading_ease(text)
+        d               = score_difficulty(text)
+        return {
+            "original":          text,
+            "simplified":        text,
+            "original_flesch":   original_flesch,
+            "simplified_flesch": original_flesch,
+            "improvement":       0.0,
+            "success":           True,
+            "reranking": {
+                "mode":                 "no_hard_words_early_exit",
+                "total_sentences":      len(sentences),
+                "sentences_simplified": 0,
+                "sentences_kept":       len(sentences),
+                "sentences_grouped":    0,
+                "hard_sentences_found": 0,
+                "clusters_found":       0,
+                "representatives_sent": 0,
+                "api_calls_made":       0,
+                "original_difficulty":  round(d, 3),
+                "final_difficulty":     round(d, 3),
+                "difficulty_reduction": 0.0,
+                "scoring_method":       "early_exit",
+                "max_concurrent":       max_concurrent_sentences,
+            },
+            "sentence_details": [
+                {
+                    "original":          s,
+                    "simplified":        s,
+                    "action":            "kept_unchanged",
+                    "reason":            "no hard words in document",
+                    "n_candidates_used": 0,
+                }
+                for s in sentences
+            ],
+        }
 
     # ── Step 1: score all sentences ────────────────────────────────────────────
     sentence_difficulties = [score_difficulty(s) for s in sentences]  # all cached after first run
